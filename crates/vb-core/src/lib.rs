@@ -1,8 +1,10 @@
 pub mod bus;
 pub mod cart;
+pub mod cpu;
 
 pub use bus::{Bus, Region};
 pub use cart::{Cart, CartError, Header};
+pub use cpu::{Condition, DecodeError, Format, Instruction, Op};
 
 pub const SCREEN_WIDTH: usize = 384;
 pub const SCREEN_HEIGHT: usize = 224;
