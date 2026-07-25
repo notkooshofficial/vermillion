@@ -1,0 +1,30 @@
+* text=auto eol=lf
+
+*.rs        text eol=lf
+*.toml      text eol=lf
+*.md        text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.json      text eol=lf
+*.wgsl      text eol=lf
+*.sh        text eol=lf
+.githooks/* text eol=lf
+
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+*.ps1       text eol=crlf
+
+*.vb        binary
+*.vboy      binary
+*.bin       binary
+*.png       binary
+*.gif       binary
+*.jpg       binary
+*.wav       binary
+*.flac      binary
+
+*.vb        linguist-detectable=false
+*.vboy      linguist-detectable=false
+*.wgsl      linguist-detectable=true
+
+tests/golden/**  linguist-generated=true

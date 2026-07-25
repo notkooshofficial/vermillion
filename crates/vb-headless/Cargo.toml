@@ -1,0 +1,17 @@
+[package]
+name = "vb-headless"
+description = "Headless Vermillion runner: executes a ROM for N frames and emits framebuffer hashes, PNGs, or CPU traces."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "vb-headless"
+path = "src/main.rs"
+
+[dependencies]
+vb-core = { workspace = true }
+vb-debug = { workspace = true }

@@ -1,0 +1,23 @@
+[package]
+name = "vb-core"
+description = "Cycle-accurate Virtual Boy hardware emulation: V810 CPU, VIP, VSU, bus and cartridge."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+
+[features]
+default = []
+serde = []
+
+[dev-dependencies]
+
+[lints.clippy]
+match_same_arms = "allow"
+unusual_byte_groupings = "allow"
+cast_possible_truncation = "warn"
+cast_sign_loss = "warn"

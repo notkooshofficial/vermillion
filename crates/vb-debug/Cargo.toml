@@ -1,0 +1,15 @@
+[package]
+name = "vb-debug"
+description = "Debugger services for Vermillion: disassembly, breakpoints, watchpoints, symbols, and VIP inspection."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+vb-core = { workspace = true }
+
+[lints.clippy]
+cast_possible_truncation = "warn"

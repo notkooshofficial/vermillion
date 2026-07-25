@@ -1,0 +1,17 @@
+[package]
+name = "vb-frontend"
+description = "Vermillion desktop application: windowing, GPU-backed stereoscopic output, audio, input, and debugger UI."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "vermillion"
+path = "src/main.rs"
+
+[dependencies]
+vb-core = { workspace = true }
+vb-debug = { workspace = true }

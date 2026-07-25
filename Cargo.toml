@@ -1,0 +1,39 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/vb-core",
+    "crates/vb-debug",
+    "crates/vb-frontend",
+    "crates/vb-headless",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+repository = "https://github.com/notkooshofficial/vermillion"
+authors = ["Notkoosh <notkroosh@gmail.com>"]
+
+[workspace.dependencies]
+vb-core = { path = "crates/vb-core" }
+vb-debug = { path = "crates/vb-debug" }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.accuracy]
+inherits = "release"
+debug-assertions = true
+overflow-checks = true
+lto = "thin"
+panic = "unwind"
