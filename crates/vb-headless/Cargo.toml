@@ -13,5 +13,6 @@ name = "vb-headless"
 path = "src/main.rs"
 
 [dependencies]
+clap = { version = "4.6.4", features = ["derive"] }
 vb-core = { workspace = true }
 vb-debug = { workspace = true }
