@@ -1,6 +1,21 @@
 use crate::bus::Bus;
 use crate::cpu::decode::{DecodeError, Instruction, Op, decode, instruction_width};
+use crate::cpu::fpu::HANDLER_FP;
 use crate::cpu::state::*;
+
+// the reference gives ranges without saying which case hits which, so these are the low end
+fn float_cycles(op: Op) -> u64 {
+    match op {
+        Op::CmpfS => 7,
+        Op::CvtWs => 5,
+        Op::CvtSw | Op::TrncSw => 9,
+        Op::AddfS => 9,
+        Op::SubfS => 12,
+        Op::MulfS => 8,
+        Op::DivfS => 44,
+        _ => 1,
+    }
+}
 
 pub const EXC_ADDRESS_TRAP: u16 = 0xFFC0;
 pub const EXC_ILLEGAL_OPCODE: u16 = 0xFF90;
@@ -605,7 +620,52 @@ impl Cpu {
                 self.plain_cycles(9)
             }
 
-            other => return Err(Stop::Unimplemented { op: other, pc }),
+            Op::Sch0bsu | Op::Sch0bsd | Op::Sch1bsu | Op::Sch1bsd => {
+                if !self.step_bit_search(bus, instruction.op) {
+                    self.pc = pc;
+                }
+                self.plain_cycles(1)
+            }
+            Op::Orbsu
+            | Op::Andbsu
+            | Op::Xorbsu
+            | Op::Movbsu
+            | Op::Ornbsu
+            | Op::Andnbsu
+            | Op::Xornbsu
+            | Op::Notbsu => {
+                if !self.step_bit_string(bus, instruction.op) {
+                    self.pc = pc;
+                }
+                self.plain_cycles(1)
+            }
+
+            Op::CmpfS
+            | Op::CvtWs
+            | Op::CvtSw
+            | Op::AddfS
+            | Op::SubfS
+            | Op::MulfS
+            | Op::DivfS
+            | Op::TrncSw => {
+                let spent = self.plain_cycles(float_cycles(instruction.op));
+                self.cycles += spent;
+
+                if let Some(fault) =
+                    self.execute_float(instruction.op, instruction.reg1, instruction.reg2)
+                {
+                    return self.raise(
+                        bus,
+                        Exception {
+                            code: fault.code(),
+                            handler: HANDLER_FP,
+                            restore_pc: pc,
+                            level: None,
+                        },
+                    );
+                }
+                return Ok(());
+            }
         };
 
         self.cycles += cycles;
@@ -1084,21 +1144,49 @@ mod tests {
     }
 
     #[test]
-    fn unimplemented_instructions_stop_rather_than_lie() {
+    fn bit_strings_and_floats_execute_rather_than_stopping() {
         let (mut cpu, mut bus) = machine(&[short(0b011111, 0, 0b01011)]);
-        assert_eq!(
-            cpu.step(&mut bus).unwrap_err(),
-            Stop::Unimplemented {
-                op: Op::Movbsu,
-                pc: ROM_BASE
-            }
-        );
+        cpu.set_reg(28, 0);
+        assert!(cpu.step(&mut bus).is_ok());
 
+        // short() takes reg2 first, so r1 is the destination and r2 the source
         let (mut cpu, mut bus) = machine(&[short(0b111110, 1, 2), 0b000100 << 10]);
-        assert!(matches!(
-            cpu.step(&mut bus).unwrap_err(),
-            Stop::Unimplemented { op: Op::AddfS, .. }
-        ));
+        cpu.set_reg(1, 3.0f32.to_bits());
+        cpu.set_reg(2, 2.0f32.to_bits());
+        assert!(cpu.step(&mut bus).is_ok());
+        assert_eq!(f32::from_bits(cpu.reg(1)), 5.0);
+    }
+
+    #[test]
+    fn a_bit_string_holds_pc_until_it_finishes() {
+        let (mut cpu, mut bus) = machine(&[short(0b011111, 0, 0b01011)]);
+        cpu.set_reg(30, 0x0500_0000);
+        cpu.set_reg(29, 0x0500_0100);
+        cpu.set_reg(28, 64);
+
+        cpu.step(&mut bus).unwrap();
+        assert_eq!(cpu.pc, ROM_BASE, "pc must not advance mid string");
+        assert_eq!(cpu.reg(28), 32);
+
+        cpu.step(&mut bus).unwrap();
+        assert_eq!(cpu.pc, ROM_BASE + 2, "pc advances once the string is done");
+        assert_eq!(cpu.reg(28), 0);
+    }
+
+    #[test]
+    fn a_float_fault_dispatches_to_the_shared_handler() {
+        let (mut cpu, mut bus) = machine(&[short(0b111110, 1, 2), 0b000111 << 10]);
+        cpu.set_reg(1, 1.0f32.to_bits());
+        cpu.set_reg(2, 0.0f32.to_bits());
+
+        cpu.step(&mut bus).unwrap();
+
+        assert_eq!(cpu.pc, crate::cpu::fpu::HANDLER_FP);
+        assert_eq!(
+            cpu.ecr & 0xFFFF,
+            u32::from(crate::cpu::fpu::EXC_FP_ZERO_DIVIDE)
+        );
+        assert!(cpu.flag(PSW_FZD));
     }
 
     #[test]
