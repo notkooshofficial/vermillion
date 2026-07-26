@@ -345,6 +345,7 @@ pub fn decode(word0: u16, word1: u16) -> Result<Instruction, DecodeError> {
             width: 2,
             reg1: 0,
             reg2: 0,
+            // disp counts from this instruction's own address, not the next one
             imm: sign_extend(u32::from(word0 & 0x01FF), 9),
             cond: Some(Condition::from_bits(((word0 >> 9) & 0xF) as u8)),
         });
@@ -356,7 +357,7 @@ pub fn decode(word0: u16, word1: u16) -> Result<Instruction, DecodeError> {
         0b101010 | 0b101011 => decode_format_iv(opcode, word0, word1),
         0b101000 | 0b101001 | 0b101100..=0b101111 => decode_format_v(opcode, word0, word1),
         0b111110 => decode_format_vii(opcode, word0, word1),
-        0b110000..=0b111111 => decode_format_vi(opcode, word0, word1),
+        0b110000..=0b111101 | 0b111111 => decode_format_vi(opcode, word0, word1),
         _ => Err(DecodeError::IllegalOpcode(opcode)),
     }
 }
@@ -401,7 +402,8 @@ fn decode_format_i(opcode: u8, word0: u16) -> Result<Instruction, DecodeError> {
         0b001100 => Op::Or,
         0b001101 => Op::And,
         0b001110 => Op::Xor,
-        _ => Op::Not,
+        0b001111 => Op::Not,
+        _ => return Err(DecodeError::IllegalOpcode(opcode)),
     };
 
     Ok(Instruction {
@@ -508,7 +510,8 @@ fn decode_format_v(opcode: u8, word0: u16, word1: u16) -> Result<Instruction, De
         0b101100 => (Op::Ori, unsigned),
         0b101101 => (Op::Andi, unsigned),
         0b101110 => (Op::Xori, unsigned),
-        _ => (Op::Movhi, unsigned),
+        0b101111 => (Op::Movhi, unsigned),
+        _ => return Err(DecodeError::IllegalOpcode(opcode)),
     };
 
     Ok(Instruction {
@@ -831,6 +834,17 @@ mod tests {
         let decoded = decode_slice(&bytes).unwrap();
         assert_eq!(decoded.op, Op::Movea);
         assert_eq!(decoded.imm, -1);
+    }
+
+    #[test]
+    fn format_vii_wins_over_the_format_vi_range() {
+        let vii = decode(short(0b111110, 1, 2), 0b001010 << 10).unwrap();
+        assert_eq!(vii.format, Format::VII);
+        assert_eq!(vii.op, Op::Rev);
+
+        let vi = decode(short(0b111111, 1, 2), 0x0004).unwrap();
+        assert_eq!(vi.format, Format::VI);
+        assert_eq!(vi.op, Op::OutW);
     }
 
     #[test]

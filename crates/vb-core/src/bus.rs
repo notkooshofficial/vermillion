@@ -31,6 +31,10 @@ impl Region {
         }
     }
 
+    pub fn is_memory(self) -> bool {
+        matches!(self, Region::Wram | Region::CartRam | Region::CartRom)
+    }
+
     pub fn base(self) -> u32 {
         match self {
             Region::Vip => 0x0000_0000,
@@ -84,13 +88,20 @@ impl Bus {
         }
     }
 
+    // devices need whole-width access - vip byte writes are anomalous
     pub fn read_u16(&self, addr: u32) -> u16 {
-        let addr = addr & !1;
+        let addr = (addr & ADDRESS_MASK) & !1;
+        if !Region::of(addr).is_memory() {
+            return 0;
+        }
         u16::from_le_bytes([self.read_u8(addr), self.read_u8(addr.wrapping_add(1))])
     }
 
     pub fn read_u32(&self, addr: u32) -> u32 {
-        let addr = addr & !3;
+        let addr = (addr & ADDRESS_MASK) & !3;
+        if !Region::of(addr).is_memory() {
+            return 0;
+        }
         u32::from_le_bytes([
             self.read_u8(addr),
             self.read_u8(addr.wrapping_add(1)),
@@ -114,14 +125,20 @@ impl Bus {
     }
 
     pub fn write_u16(&mut self, addr: u32, value: u16) {
-        let addr = addr & !1;
+        let addr = (addr & ADDRESS_MASK) & !1;
+        if !Region::of(addr).is_memory() {
+            return;
+        }
         let bytes = value.to_le_bytes();
         self.write_u8(addr, bytes[0]);
         self.write_u8(addr.wrapping_add(1), bytes[1]);
     }
 
     pub fn write_u32(&mut self, addr: u32, value: u32) {
-        let addr = addr & !3;
+        let addr = (addr & ADDRESS_MASK) & !3;
+        if !Region::of(addr).is_memory() {
+            return;
+        }
         let bytes = value.to_le_bytes();
         self.write_u8(addr, bytes[0]);
         self.write_u8(addr.wrapping_add(1), bytes[1]);
@@ -282,6 +299,21 @@ mod tests {
             bus.write_u32(base, 0xFFFF_FFFF);
             assert_eq!(bus.read_u32(base), 0, "region at {base:#010X}");
         }
+    }
+
+    #[test]
+    fn device_regions_are_never_accessed_as_byte_pairs() {
+        let mut bus = bus_with_rom(0x1000);
+        for base in [0x0000_0000u32, 0x0100_0000, 0x0200_0000, 0x0400_0000] {
+            assert!(!Region::of(base).is_memory());
+            bus.write_u16(base, 0xFFFF);
+            bus.write_u32(base, 0xFFFF_FFFF);
+            assert_eq!(bus.read_u16(base), 0);
+            assert_eq!(bus.read_u32(base), 0);
+        }
+        assert!(Region::of(0x0500_0000).is_memory());
+        assert!(Region::of(0x0600_0000).is_memory());
+        assert!(Region::of(0x0700_0000).is_memory());
     }
 
     #[test]

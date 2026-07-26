@@ -2,6 +2,8 @@ use std::error::Error;
 use std::fmt;
 
 pub const HEADER_LEN: usize = 0x20;
+
+// sits below the 0x200-byte vector table, not at rom end
 pub const HEADER_OFFSET_FROM_END: usize = 0x220;
 
 pub const TITLE_LEN: usize = 20;
@@ -17,7 +19,9 @@ const VERSION_START: usize = GAME_CODE_START + GAME_CODE_LEN;
 
 pub const MIN_ROM_LEN: usize = 0x400;
 pub const MAX_ROM_LEN: usize = 0x0100_0000;
-pub const MAX_SRAM_LEN: usize = 0x0100_0000;
+
+// real carts use 8k, the region addresses 16m
+pub const MAX_SRAM_LEN: usize = 0x1_0000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CartError {
@@ -300,6 +304,13 @@ pub(crate) mod tests {
             Cart::with_sram(test_rom(0x1000), MAX_SRAM_LEN * 2).unwrap_err(),
             CartError::SramTooLarge(MAX_SRAM_LEN * 2)
         );
+    }
+
+    #[test]
+    fn sram_cap_bounds_the_allocation() {
+        let cart = Cart::with_sram(test_rom(0x1000), MAX_SRAM_LEN).unwrap();
+        assert_eq!(cart.sram().len(), MAX_SRAM_LEN);
+        assert!(Cart::with_sram(test_rom(0x1000), MAX_SRAM_LEN * 2).is_err());
     }
 
     #[test]
