@@ -10,7 +10,7 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.87"
 license = "MIT"
 repository = "https://github.com/notkooshofficial/vermillion"
 authors = ["Notkoosh <notkroosh@gmail.com>"]

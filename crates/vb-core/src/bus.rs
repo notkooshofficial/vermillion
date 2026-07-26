@@ -88,7 +88,7 @@ impl Bus {
         }
     }
 
-    // devices need whole-width access - vip byte writes are anomalous
+    // devices need whole-width access, vip byte writes are anomalous
     pub fn read_u16(&self, addr: u32) -> u16 {
         let addr = (addr & ADDRESS_MASK) & !1;
         if !Region::of(addr).is_memory() {

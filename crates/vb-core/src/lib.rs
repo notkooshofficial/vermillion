@@ -4,7 +4,7 @@ pub mod cpu;
 
 pub use bus::{Bus, Region};
 pub use cart::{Cart, CartError, Header};
-pub use cpu::{Condition, DecodeError, Format, Instruction, Op};
+pub use cpu::{Condition, Cpu, DecodeError, Format, Instruction, Op, StepOutcome, Stop};
 
 pub const SCREEN_WIDTH: usize = 384;
 pub const SCREEN_HEIGHT: usize = 224;
