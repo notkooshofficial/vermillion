@@ -20,4 +20,4 @@ fffffff4 21 a0 00 01 movea 0x100, r1, r1 r1=05000100
 fffffff8 45 40 mov 0x5, r2 r2=00000005
 fffffffa 42 04 add r2, r2 r2=0000000a
 
-no games are included and the virtual boy has no bios, so a rom file is all you need
+No games are included and the virtual boy has no bios, so a rom file is all you need

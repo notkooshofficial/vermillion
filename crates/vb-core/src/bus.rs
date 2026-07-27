@@ -1,4 +1,6 @@
 use crate::cart::Cart;
+use crate::timer::Timer;
+use crate::wait::WaitController;
 
 pub const ADDRESS_MASK: u32 = 0x07FF_FFFF;
 pub const REGION_LEN: u32 = 0x0100_0000;
@@ -52,6 +54,8 @@ impl Region {
 pub struct Bus {
     cart: Cart,
     wram: Box<[u8]>,
+    timer: Timer,
+    wait: WaitController,
 }
 
 impl Bus {
@@ -59,7 +63,29 @@ impl Bus {
         Self {
             cart,
             wram: vec![0; WRAM_LEN].into_boxed_slice(),
+            timer: Timer::new(),
+            wait: WaitController::new(),
         }
+    }
+
+    pub fn timer(&self) -> &Timer {
+        &self.timer
+    }
+
+    pub fn timer_mut(&mut self) -> &mut Timer {
+        &mut self.timer
+    }
+
+    pub fn wait(&self) -> &WaitController {
+        &self.wait
+    }
+
+    pub fn wait_mut(&mut self) -> &mut WaitController {
+        &mut self.wait
+    }
+
+    pub fn tick(&mut self, cycles: u64) {
+        self.timer.tick(cycles);
     }
 
     pub fn cart(&self) -> &Cart {
@@ -84,7 +110,26 @@ impl Bus {
             Region::Wram => self.wram[(addr & WRAM_MASK) as usize],
             Region::CartRam => self.cart.read_sram(addr),
             Region::CartRom => self.cart.read_rom(addr),
-            Region::Vip | Region::Vsu | Region::Misc | Region::Unmapped | Region::Expansion => 0,
+            Region::Misc => self.read_misc(addr),
+            Region::Vip | Region::Vsu | Region::Unmapped | Region::Expansion => 0,
+        }
+    }
+
+    fn read_misc(&self, addr: u32) -> u8 {
+        if Timer::handles(addr) {
+            self.timer.read(addr)
+        } else if WaitController::handles(addr) {
+            self.wait.read()
+        } else {
+            0
+        }
+    }
+
+    fn write_misc(&mut self, addr: u32, value: u8) {
+        if Timer::handles(addr) {
+            self.timer.write(addr, value);
+        } else if WaitController::handles(addr) {
+            self.wait.write(value);
         }
     }
 
@@ -115,12 +160,8 @@ impl Bus {
         match Region::of(addr) {
             Region::Wram => self.wram[(addr & WRAM_MASK) as usize] = value,
             Region::CartRam => self.cart.write_sram(addr, value),
-            Region::CartRom
-            | Region::Vip
-            | Region::Vsu
-            | Region::Misc
-            | Region::Unmapped
-            | Region::Expansion => {}
+            Region::Misc => self.write_misc(addr, value),
+            Region::CartRom | Region::Vip | Region::Vsu | Region::Unmapped | Region::Expansion => {}
         }
     }
 
@@ -314,6 +355,25 @@ mod tests {
         assert!(Region::of(0x0500_0000).is_memory());
         assert!(Region::of(0x0600_0000).is_memory());
         assert!(Region::of(0x0700_0000).is_memory());
+    }
+
+    #[test]
+    fn misc_devices_share_the_region_without_colliding() {
+        let mut bus = bus_with_rom(0x1000);
+
+        bus.write_u8(crate::timer::TLR, 0x42);
+        bus.write_u8(crate::wait::WCR, crate::wait::WCR_ROM1W);
+
+        assert_eq!(bus.read_u8(crate::timer::TLR), 0x42);
+        assert_eq!(bus.wait().rom_waits(), 1);
+        assert_eq!(bus.timer().counter(), 0x42);
+    }
+
+    #[test]
+    fn unclaimed_misc_registers_still_read_zero() {
+        let mut bus = bus_with_rom(0x1000);
+        bus.write_u8(0x0200_0000, 0xFF);
+        assert_eq!(bus.read_u8(0x0200_0000), 0);
     }
 
     #[test]

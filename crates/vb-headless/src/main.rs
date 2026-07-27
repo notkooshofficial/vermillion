@@ -150,8 +150,12 @@ fn trace(
         let bytes = raw_bytes(&bus, pc);
         let before_regs = cpu.regs;
         let before_psw = cpu.psw;
+        let before_cycles = cpu.cycles;
 
-        match cpu.step(&mut bus) {
+        let outcome = cpu.step(&mut bus);
+        bus.tick(cpu.cycles - before_cycles);
+
+        match outcome {
             Ok(StepOutcome::Executed(instruction)) => {
                 let line = format!(
                     "{pc:08x}  {:<11}  {:<24}{}",
