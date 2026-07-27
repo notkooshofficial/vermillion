@@ -1,3 +1,5 @@
+use crate::cpu::cache::{CHCW_ICE, Cache};
+
 pub const PSW_Z: u32 = 1 << 0;
 pub const PSW_S: u32 = 1 << 1;
 pub const PSW_OV: u32 = 1 << 2;
@@ -34,6 +36,7 @@ pub const PIR_VALUE: u32 = 0x0000_5346;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cpu {
+    pub cache: Cache,
     pub regs: [u32; 32],
     pub pc: u32,
     pub psw: u32,
@@ -64,6 +67,7 @@ impl Default for Cpu {
 impl Cpu {
     pub fn new() -> Self {
         Self {
+            cache: Cache::new(),
             regs: [0; 32],
             pc: crate::RESET_PC,
             psw: crate::RESET_PSW,
@@ -147,7 +151,8 @@ impl Cpu {
             SR_FEPC => self.fepc = value & !1,
             SR_FEPSW => self.fepsw = value & PSW_WRITABLE,
             SR_PSW => self.set_psw(value),
-            SR_CHCW => self.chcw = value,
+            // the operation bits are write-only requests, not state; cache_control runs them
+            SR_CHCW => self.chcw = value & CHCW_ICE,
             SR_ADTRE => self.adtre = value,
             29 => self.sr29 = value,
             31 => self.sr31 = value,

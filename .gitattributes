@@ -8,7 +8,6 @@
 *.json      text eol=lf
 *.wgsl      text eol=lf
 *.sh        text eol=lf
-.githooks/* text eol=lf
 
 *.bat       text eol=crlf
 *.cmd       text eol=crlf

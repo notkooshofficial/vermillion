@@ -105,6 +105,13 @@ impl Cpu {
             0
         };
 
+        if self.cache_enabled() {
+            self.cache.fill(bus, pc);
+            if width == 4 {
+                self.cache.fill(bus, pc.wrapping_add(2));
+            }
+        }
+
         let instruction = match decode(word0, word1) {
             Ok(instruction) => instruction,
             Err(DecodeError::IllegalOpcode(_) | DecodeError::IllegalSubOpcode { .. }) => {
@@ -548,7 +555,13 @@ impl Cpu {
             }
 
             Op::Ldsr => {
-                self.write_system_register(field_index(imm), reg2);
+                // chcw is the one system register whose write reaches memory
+                let index = field_index(imm);
+                if index == SR_CHCW {
+                    self.cache_control(bus, reg2);
+                } else {
+                    self.write_system_register(index, reg2);
+                }
                 self.plain_cycles(8)
             }
             Op::Stsr => {
@@ -1204,6 +1217,29 @@ mod tests {
         assert_eq!(cpu.pc, HANDLER_ADDRESS_TRAP);
         assert_eq!(cpu.eipc, ROM_BASE);
         assert!(!cpu.flag(PSW_AE));
+    }
+
+    #[test]
+    fn fetching_fills_the_cache_only_while_it_is_enabled() {
+        let (mut cpu, mut bus) = machine(&[short(0b000000, 1, 2)]);
+        cpu.step(&mut bus).unwrap();
+        assert!(!cpu.cache.contains(ROM_BASE));
+
+        let (mut cpu, mut bus) = machine(&[short(0b000000, 1, 2)]);
+        cpu.chcw = crate::cpu::cache::CHCW_ICE;
+        cpu.step(&mut bus).unwrap();
+        assert!(cpu.cache.contains(ROM_BASE));
+    }
+
+    #[test]
+    fn a_32_bit_instruction_spanning_two_blocks_fills_both() {
+        let (mut cpu, mut bus) = machine(&[0, 0, 0, short(0b101011, 0, 0), 0x0010]);
+        cpu.pc = ROM_BASE + 6;
+        cpu.chcw = crate::cpu::cache::CHCW_ICE;
+        cpu.step(&mut bus).unwrap();
+
+        assert!(cpu.cache.contains(ROM_BASE + 6));
+        assert!(cpu.cache.contains(ROM_BASE + 8));
     }
 
     #[test]
