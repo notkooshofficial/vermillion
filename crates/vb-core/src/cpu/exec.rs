@@ -2,6 +2,7 @@ use crate::bus::Bus;
 use crate::cpu::decode::{DecodeError, Instruction, Op, decode, instruction_width};
 use crate::cpu::fpu::HANDLER_FP;
 use crate::cpu::state::*;
+use crate::interrupt::Source;
 
 // the reference gives ranges without saying which case hits which, so these are the low end
 fn float_cycles(op: Op) -> u64 {
@@ -41,6 +42,7 @@ pub enum Stop {
 pub enum StepOutcome {
     Executed(Instruction),
     Exception { code: u16 },
+    Interrupt { source: Source },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,6 +79,20 @@ fn high_word(value: u64) -> u32 {
 
 impl Cpu {
     pub fn step(&mut self, bus: &mut Bus) -> Result<StepOutcome, Stop> {
+        if let Some(source) = self.acceptable_interrupt(bus) {
+            // pc is the next instruction, or a bit string still holding its own address
+            self.raise(
+                bus,
+                Exception {
+                    code: source.code(),
+                    handler: source.handler(),
+                    restore_pc: self.pc,
+                    level: Some(source.level()),
+                },
+            )?;
+            return Ok(StepOutcome::Interrupt { source });
+        }
+
         if self.halted {
             return Err(Stop::Halted);
         }
@@ -135,6 +151,18 @@ impl Cpu {
         self.pc = next_pc;
         self.execute(bus, instruction, pc, next_pc)?;
         Ok(StepOutcome::Executed(instruction))
+    }
+
+    pub fn accepts_interrupt(&self, level: u32) -> bool {
+        !self.flag(PSW_ID)
+            && !self.flag(PSW_EP)
+            && !self.flag(PSW_NP)
+            && self.interrupt_level() <= level
+    }
+
+    fn acceptable_interrupt(&self, bus: &Bus) -> Option<Source> {
+        bus.pending_interrupt()
+            .filter(|source| self.accepts_interrupt(source.level()))
     }
 
     pub fn raise(&mut self, bus: &mut Bus, exception: Exception) -> Result<(), Stop> {
@@ -1240,6 +1268,98 @@ mod tests {
 
         assert!(cpu.cache.contains(ROM_BASE + 6));
         assert!(cpu.cache.contains(ROM_BASE + 8));
+    }
+
+    fn with_timer_raised(program: &[u16]) -> (Cpu, Bus) {
+        let (mut cpu, mut bus) = machine(program);
+        let timer = bus.timer_mut();
+        timer.write(crate::timer::TLR, 1);
+        timer.write(crate::timer::THR, 0);
+        timer.write(
+            crate::timer::TCR,
+            crate::timer::TCR_T_ENB | crate::timer::TCR_T_CLK_SEL | crate::timer::TCR_TIM_Z_INT,
+        );
+        timer.tick(crate::timer::TICK_CYCLES);
+        assert!(bus.timer().interrupt_pending());
+
+        cpu.set_flag(PSW_ID, false);
+        (cpu, bus)
+    }
+
+    #[test]
+    fn a_timer_interrupt_dispatches_to_its_handler() {
+        let (mut cpu, mut bus) = with_timer_raised(&[short(0b000001, 1, 2)]);
+
+        assert_eq!(
+            cpu.step(&mut bus).unwrap(),
+            StepOutcome::Interrupt {
+                source: Source::TimerZero
+            }
+        );
+
+        assert_eq!(cpu.pc, Source::TimerZero.handler());
+        assert_eq!(cpu.ecr & 0xFFFF, u32::from(Source::TimerZero.code()));
+        assert_eq!(cpu.eipc, ROM_BASE, "restores to the instruction never run");
+        assert_eq!(cpu.interrupt_level(), Source::TimerZero.level() + 1);
+        assert!(cpu.flag(PSW_EP));
+        assert!(cpu.flag(PSW_ID));
+    }
+
+    #[test]
+    fn the_gates_each_block_acceptance_on_their_own() {
+        for gate in [PSW_ID, PSW_EP, PSW_NP] {
+            let (mut cpu, mut bus) = with_timer_raised(&[short(0b000001, 1, 2)]);
+            cpu.set_flag(gate, true);
+            assert!(matches!(
+                cpu.step(&mut bus),
+                Ok(StepOutcome::Executed(_)) | Err(Stop::Fatal { .. })
+            ));
+            assert_ne!(cpu.pc, Source::TimerZero.handler(), "gate {gate:#x}");
+        }
+    }
+
+    #[test]
+    fn a_higher_mask_level_blocks_a_lower_priority_source() {
+        let (mut cpu, mut bus) = with_timer_raised(&[short(0b000001, 1, 2)]);
+        cpu.set_interrupt_level(Source::TimerZero.level() + 1);
+        cpu.step(&mut bus).unwrap();
+        assert_eq!(cpu.pc, ROM_BASE + 2, "masked, so the instruction ran");
+
+        let (mut cpu, mut bus) = with_timer_raised(&[short(0b000001, 1, 2)]);
+        cpu.set_interrupt_level(Source::TimerZero.level());
+        cpu.step(&mut bus).unwrap();
+        assert_eq!(cpu.pc, Source::TimerZero.handler(), "equal level accepts");
+    }
+
+    #[test]
+    fn an_interrupt_completes_a_halt() {
+        let (mut cpu, mut bus) = with_timer_raised(&[short(0b011010, 0, 0)]);
+        cpu.halted = true;
+
+        cpu.step(&mut bus).unwrap();
+
+        assert!(!cpu.halted);
+        assert_eq!(cpu.pc, Source::TimerZero.handler());
+    }
+
+    #[test]
+    fn an_interrupt_mid_bit_string_restores_to_the_instruction() {
+        let (mut cpu, mut bus) = with_timer_raised(&[short(0b011111, 0, 0b01011)]);
+        cpu.set_reg(30, 0x0500_0000);
+        cpu.set_reg(29, 0x0500_0100);
+        cpu.set_reg(28, 64);
+
+        cpu.set_interrupt_level(15);
+        cpu.step(&mut bus).unwrap();
+        assert_eq!(cpu.pc, ROM_BASE);
+        assert_eq!(cpu.reg(28), 32);
+
+        cpu.set_interrupt_level(0);
+        cpu.step(&mut bus).unwrap();
+
+        assert_eq!(cpu.pc, Source::TimerZero.handler());
+        assert_eq!(cpu.eipc, ROM_BASE, "reti re-enters the bit string");
+        assert_eq!(cpu.reg(28), 32, "and it resumes where it stopped");
     }
 
     #[test]

@@ -1,4 +1,5 @@
 use crate::cart::Cart;
+use crate::interrupt::{SOURCES, Source};
 use crate::timer::Timer;
 use crate::wait::WaitController;
 
@@ -86,6 +87,18 @@ impl Bus {
 
     pub fn tick(&mut self, cycles: u64) {
         self.timer.tick(cycles);
+    }
+
+    pub fn pending_interrupt(&self) -> Option<Source> {
+        SOURCES.into_iter().find(|source| self.raised(*source))
+    }
+
+    fn raised(&self, source: Source) -> bool {
+        match source {
+            Source::TimerZero => self.timer.interrupt_pending(),
+            // the vip, game pak, communication port and game pad do not exist yet
+            Source::Vip | Source::Communication | Source::GamePak | Source::GamePad => false,
+        }
     }
 
     pub fn cart(&self) -> &Cart {

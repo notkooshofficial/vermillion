@@ -166,6 +166,15 @@ fn trace(
                 println!("{}", line.trim_end());
                 executed += 1;
             }
+            Ok(StepOutcome::Interrupt { source }) => {
+                println!(
+                    "{pc:08x}  {:<11}  {:<24}-> {:08x}",
+                    "",
+                    format!("interrupt {}", source.name()),
+                    cpu.pc
+                );
+                executed += 1;
+            }
             Ok(StepOutcome::Exception { code }) => {
                 println!(
                     "{pc:08x}  {:<11}  {:<24}-> {:08x}",

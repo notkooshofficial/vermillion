@@ -63,7 +63,6 @@ impl Timer {
         self.reload
     }
 
-    // unfinished but pushed anyway, interrupt acceptance is what connects this
     pub fn interrupt_pending(&self) -> bool {
         self.pending
     }
