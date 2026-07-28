@@ -2,6 +2,7 @@ pub mod bus;
 pub mod cart;
 pub mod cpu;
 pub mod interrupt;
+pub mod pad;
 pub mod timer;
 pub mod wait;
 
@@ -9,6 +10,7 @@ pub use bus::{Bus, Region};
 pub use cart::{Cart, CartError, Header};
 pub use cpu::{Condition, Cpu, DecodeError, Format, Instruction, Op, StepOutcome, Stop};
 pub use interrupt::Source;
+pub use pad::GamePad;
 pub use timer::Timer;
 pub use wait::WaitController;
 

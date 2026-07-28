@@ -166,6 +166,8 @@ fn trace(
                 println!("{}", line.trim_end());
                 executed += 1;
             }
+            // idling is guaranteed to end, either a device raises or the halt turns permanent
+            Ok(StepOutcome::Halted) => {}
             Ok(StepOutcome::Interrupt { source }) => {
                 println!(
                     "{pc:08x}  {:<11}  {:<24}-> {:08x}",
@@ -237,7 +239,7 @@ fn changes(before_regs: &[u32; 32], before_psw: u32, cpu: &Cpu) -> String {
 
 fn describe(stop: Stop) -> String {
     match stop {
-        Stop::Halted => "halted".to_string(),
+        Stop::Halted => "halted with nothing able to wake it".to_string(),
         Stop::Fatal { code, pc } => format!("fatal exception {code:#06x} at {pc:08x}"),
         Stop::Unimplemented { op, pc } => {
             format!("unimplemented instruction {} at {pc:08x}", op.mnemonic())

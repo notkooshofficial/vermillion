@@ -2,7 +2,7 @@ use crate::bus::Bus;
 use crate::cpu::decode::{DecodeError, Instruction, Op, decode, instruction_width};
 use crate::cpu::fpu::HANDLER_FP;
 use crate::cpu::state::*;
-use crate::interrupt::Source;
+use crate::interrupt::{SOURCES, Source};
 
 // the reference gives ranges without saying which case hits which, so these are the low end
 fn float_cycles(op: Op) -> u64 {
@@ -43,6 +43,7 @@ pub enum StepOutcome {
     Executed(Instruction),
     Exception { code: u16 },
     Interrupt { source: Source },
+    Halted,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,7 +95,13 @@ impl Cpu {
         }
 
         if self.halted {
-            return Err(Stop::Halted);
+            // halt is a wait, not a stop, so time has to keep passing for the wake to arrive
+            if !self.can_wake(bus) {
+                return Err(Stop::Halted);
+            }
+            let idle = self.plain_cycles(1);
+            self.cycles += idle;
+            return Ok(StepOutcome::Halted);
         }
 
         if self.flag(PSW_AE) && self.pc == self.adtre {
@@ -158,6 +165,13 @@ impl Cpu {
             && !self.flag(PSW_EP)
             && !self.flag(PSW_NP)
             && self.interrupt_level() <= level
+    }
+
+    // nothing can clear the psw gates while halted, so a blocked halt is permanent
+    fn can_wake(&self, bus: &Bus) -> bool {
+        SOURCES
+            .into_iter()
+            .any(|source| bus.may_raise(source) && self.accepts_interrupt(source.level()))
     }
 
     fn acceptable_interrupt(&self, bus: &Bus) -> Option<Source> {
@@ -1360,6 +1374,68 @@ mod tests {
         assert_eq!(cpu.pc, Source::TimerZero.handler());
         assert_eq!(cpu.eipc, ROM_BASE, "reti re-enters the bit string");
         assert_eq!(cpu.reg(28), 32, "and it resumes where it stopped");
+    }
+
+    fn arm_timer(bus: &mut Bus, counter: u8) {
+        let timer = bus.timer_mut();
+        timer.write(crate::timer::TLR, counter);
+        timer.write(crate::timer::THR, 0);
+        timer.write(
+            crate::timer::TCR,
+            crate::timer::TCR_T_ENB | crate::timer::TCR_T_CLK_SEL | crate::timer::TCR_TIM_Z_INT,
+        );
+    }
+
+    #[test]
+    fn a_halted_cpu_waits_for_the_timer_and_resumes() {
+        let (mut cpu, mut bus) = machine(&[short(0b011010, 0, 0)]);
+        cpu.set_flag(PSW_ID, false);
+        arm_timer(&mut bus, 2);
+
+        cpu.step(&mut bus).unwrap();
+        assert!(cpu.halted);
+
+        let mut idled = 0;
+        let source = loop {
+            let before = cpu.cycles;
+            let outcome = cpu.step(&mut bus).unwrap();
+            bus.tick(cpu.cycles - before);
+
+            match outcome {
+                StepOutcome::Halted => idled += 1,
+                StepOutcome::Interrupt { source } => break source,
+                other => panic!("unexpected {other:?}"),
+            }
+            assert!(idled < 5_000, "the halt never woke");
+        };
+
+        assert_eq!(source, Source::TimerZero);
+        assert!(!cpu.halted);
+        assert_eq!(cpu.pc, Source::TimerZero.handler());
+        assert!(idled > 0, "time actually passed while halted");
+    }
+
+    #[test]
+    fn a_halt_that_nothing_can_wake_stops_at_once() {
+        let (mut cpu, mut bus) = machine(&[short(0b011010, 0, 0)]);
+        cpu.set_flag(PSW_ID, false);
+
+        cpu.step(&mut bus).unwrap();
+        assert_eq!(cpu.step(&mut bus).unwrap_err(), Stop::Halted);
+    }
+
+    #[test]
+    fn a_halt_with_interrupts_masked_is_permanent_even_with_a_timer_running() {
+        let (mut cpu, mut bus) = machine(&[short(0b011010, 0, 0)]);
+        arm_timer(&mut bus, 2);
+        cpu.set_flag(PSW_ID, true);
+
+        cpu.step(&mut bus).unwrap();
+        assert_eq!(
+            cpu.step(&mut bus).unwrap_err(),
+            Stop::Halted,
+            "id cannot be cleared while halted"
+        );
     }
 
     #[test]

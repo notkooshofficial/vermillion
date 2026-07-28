@@ -1,5 +1,6 @@
 use crate::cart::Cart;
 use crate::interrupt::{SOURCES, Source};
+use crate::pad::GamePad;
 use crate::timer::Timer;
 use crate::wait::WaitController;
 
@@ -57,6 +58,7 @@ pub struct Bus {
     wram: Box<[u8]>,
     timer: Timer,
     wait: WaitController,
+    pad: GamePad,
 }
 
 impl Bus {
@@ -66,7 +68,16 @@ impl Bus {
             wram: vec![0; WRAM_LEN].into_boxed_slice(),
             timer: Timer::new(),
             wait: WaitController::new(),
+            pad: GamePad::new(),
         }
+    }
+
+    pub fn pad(&self) -> &GamePad {
+        &self.pad
+    }
+
+    pub fn pad_mut(&mut self) -> &mut GamePad {
+        &mut self.pad
     }
 
     pub fn timer(&self) -> &Timer {
@@ -87,6 +98,7 @@ impl Bus {
 
     pub fn tick(&mut self, cycles: u64) {
         self.timer.tick(cycles);
+        self.pad.tick(cycles);
     }
 
     pub fn pending_interrupt(&self) -> Option<Source> {
@@ -96,8 +108,17 @@ impl Bus {
     fn raised(&self, source: Source) -> bool {
         match source {
             Source::TimerZero => self.timer.interrupt_pending(),
-            // the vip, game pak, communication port and game pad do not exist yet
-            Source::Vip | Source::Communication | Source::GamePak | Source::GamePad => false,
+            Source::GamePad => self.pad.interrupt_pending(),
+            // the vip, game pak and communication port do not exist yet
+            Source::Vip | Source::Communication | Source::GamePak => false,
+        }
+    }
+
+    pub fn may_raise(&self, source: Source) -> bool {
+        match source {
+            Source::TimerZero => self.timer.may_raise(),
+            Source::GamePad => self.pad.may_raise(),
+            Source::Vip | Source::Communication | Source::GamePak => false,
         }
     }
 
@@ -133,6 +154,8 @@ impl Bus {
             self.timer.read(addr)
         } else if WaitController::handles(addr) {
             self.wait.read()
+        } else if GamePad::handles(addr) {
+            self.pad.read(addr)
         } else {
             0
         }
@@ -143,6 +166,8 @@ impl Bus {
             self.timer.write(addr, value);
         } else if WaitController::handles(addr) {
             self.wait.write(value);
+        } else if GamePad::handles(addr) {
+            self.pad.write(addr, value);
         }
     }
 

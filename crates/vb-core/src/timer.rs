@@ -67,6 +67,12 @@ impl Timer {
         self.pending
     }
 
+    // a counter and reload of zero never transitions into zero, so it never raises again
+    pub fn may_raise(&self) -> bool {
+        self.pending
+            || (self.enabled && self.interrupt_enabled && (self.counter != 0 || self.reload != 0))
+    }
+
     // the tick counter runs even while the timer is disabled
     pub fn tick(&mut self, cycles: u64) {
         self.elapsed += cycles;
