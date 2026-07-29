@@ -4,6 +4,7 @@ pub mod cpu;
 pub mod interrupt;
 pub mod pad;
 pub mod timer;
+pub mod vip;
 pub mod wait;
 
 pub use bus::{Bus, Region};
@@ -12,6 +13,7 @@ pub use cpu::{Condition, Cpu, DecodeError, Format, Instruction, Op, StepOutcome,
 pub use interrupt::Source;
 pub use pad::GamePad;
 pub use timer::Timer;
+pub use vip::Vip;
 pub use wait::WaitController;
 
 pub const SCREEN_WIDTH: usize = 384;

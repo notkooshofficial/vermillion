@@ -569,7 +569,7 @@ impl Cpu {
 
             Op::StB | Op::OutB => {
                 let address = self.effective_address(instruction);
-                bus.write_u8(address, (reg2 & 0xFF) as u8);
+                bus.store_u8(address, reg2);
                 self.store_cycles()
             }
             Op::StH | Op::OutH => {

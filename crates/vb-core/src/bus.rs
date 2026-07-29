@@ -2,6 +2,7 @@ use crate::cart::Cart;
 use crate::interrupt::{SOURCES, Source};
 use crate::pad::GamePad;
 use crate::timer::Timer;
+use crate::vip::Vip;
 use crate::wait::WaitController;
 
 pub const ADDRESS_MASK: u32 = 0x07FF_FFFF;
@@ -59,6 +60,7 @@ pub struct Bus {
     timer: Timer,
     wait: WaitController,
     pad: GamePad,
+    vip: Vip,
 }
 
 impl Bus {
@@ -69,7 +71,16 @@ impl Bus {
             timer: Timer::new(),
             wait: WaitController::new(),
             pad: GamePad::new(),
+            vip: Vip::new(),
         }
+    }
+
+    pub fn vip(&self) -> &Vip {
+        &self.vip
+    }
+
+    pub fn vip_mut(&mut self) -> &mut Vip {
+        &mut self.vip
     }
 
     pub fn pad(&self) -> &GamePad {
@@ -145,7 +156,8 @@ impl Bus {
             Region::CartRam => self.cart.read_sram(addr),
             Region::CartRom => self.cart.read_rom(addr),
             Region::Misc => self.read_misc(addr),
-            Region::Vip | Region::Vsu | Region::Unmapped | Region::Expansion => 0,
+            Region::Vip => self.vip.read_u8(addr),
+            Region::Vsu | Region::Unmapped | Region::Expansion => 0,
         }
     }
 
@@ -174,6 +186,9 @@ impl Bus {
     // devices need whole-width access, vip byte writes are anomalous
     pub fn read_u16(&self, addr: u32) -> u16 {
         let addr = (addr & ADDRESS_MASK) & !1;
+        if Region::of(addr) == Region::Vip {
+            return self.vip.read_u16(addr);
+        }
         if !Region::of(addr).is_memory() {
             return 0;
         }
@@ -182,6 +197,9 @@ impl Bus {
 
     pub fn read_u32(&self, addr: u32) -> u32 {
         let addr = (addr & ADDRESS_MASK) & !3;
+        if Region::of(addr) == Region::Vip {
+            return self.vip.read_u32(addr);
+        }
         if !Region::of(addr).is_memory() {
             return 0;
         }
@@ -199,12 +217,26 @@ impl Bus {
             Region::Wram => self.wram[(addr & WRAM_MASK) as usize] = value,
             Region::CartRam => self.cart.write_sram(addr, value),
             Region::Misc => self.write_misc(addr, value),
-            Region::CartRom | Region::Vip | Region::Vsu | Region::Unmapped | Region::Expansion => {}
+            Region::Vip => self.vip.write_u8(addr, u32::from(value)),
+            Region::CartRom | Region::Vsu | Region::Unmapped | Region::Expansion => {}
+        }
+    }
+
+    pub fn store_u8(&mut self, addr: u32, source: u32) {
+        let addr = addr & ADDRESS_MASK;
+        if Region::of(addr) == Region::Vip {
+            self.vip.write_u8(addr, source);
+        } else {
+            self.write_u8(addr, (source & 0xFF) as u8);
         }
     }
 
     pub fn write_u16(&mut self, addr: u32, value: u16) {
         let addr = (addr & ADDRESS_MASK) & !1;
+        if Region::of(addr) == Region::Vip {
+            self.vip.write_u16(addr, value);
+            return;
+        }
         if !Region::of(addr).is_memory() {
             return;
         }
@@ -215,6 +247,10 @@ impl Bus {
 
     pub fn write_u32(&mut self, addr: u32, value: u32) {
         let addr = (addr & ADDRESS_MASK) & !3;
+        if Region::of(addr) == Region::Vip {
+            self.vip.write_u32(addr, value);
+            return;
+        }
         if !Region::of(addr).is_memory() {
             return;
         }
@@ -368,13 +404,7 @@ mod tests {
     #[test]
     fn unimplemented_regions_read_zero_and_swallow_writes() {
         let mut bus = bus_with_rom(0x1000);
-        for base in [
-            0x0000_0000u32,
-            0x0100_0000,
-            0x0200_0000,
-            0x0300_0000,
-            0x0400_0000,
-        ] {
+        for base in [0x0100_0000u32, 0x0300_0000, 0x0400_0000] {
             bus.write_u32(base, 0xFFFF_FFFF);
             assert_eq!(bus.read_u32(base), 0, "region at {base:#010X}");
         }
@@ -383,7 +413,7 @@ mod tests {
     #[test]
     fn device_regions_are_never_accessed_as_byte_pairs() {
         let mut bus = bus_with_rom(0x1000);
-        for base in [0x0000_0000u32, 0x0100_0000, 0x0200_0000, 0x0400_0000] {
+        for base in [0x0100_0000u32, 0x0200_0000, 0x0400_0000] {
             assert!(!Region::of(base).is_memory());
             bus.write_u16(base, 0xFFFF);
             bus.write_u32(base, 0xFFFF_FFFF);
@@ -393,6 +423,29 @@ mod tests {
         assert!(Region::of(0x0500_0000).is_memory());
         assert!(Region::of(0x0600_0000).is_memory());
         assert!(Region::of(0x0700_0000).is_memory());
+    }
+
+    #[test]
+    fn the_vip_is_reachable_at_every_width() {
+        let mut bus = bus_with_rom(0x1000);
+
+        bus.write_u16(0x0002_0000, 0x1234);
+        bus.write_u32(0x0002_0004, 0xDEAD_BEEF);
+
+        assert_eq!(bus.read_u16(0x0002_0000), 0x1234);
+        assert_eq!(bus.read_u32(0x0002_0004), 0xDEAD_BEEF);
+        assert_eq!(bus.read_u8(0x0002_0000), 0x34);
+    }
+
+    #[test]
+    fn a_byte_store_to_a_vip_register_carries_the_whole_source() {
+        let mut bus = bus_with_rom(0x1000);
+
+        bus.store_u8(crate::vip::registers::BRTA, 0x0000_ABCD);
+        assert_eq!(bus.read_u16(crate::vip::registers::BRTA), 0x00CD);
+
+        bus.store_u8(crate::vip::registers::SPT0 + 1, 0x0000_0003);
+        assert_eq!(bus.read_u16(crate::vip::registers::SPT0), 0x0300);
     }
 
     #[test]
