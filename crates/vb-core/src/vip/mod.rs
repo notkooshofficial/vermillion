@@ -1,6 +1,8 @@
 pub mod registers;
+pub mod structures;
 
 pub use registers::Registers;
+pub use structures::{Affine, Cell, Character, ColumnEntry, HBias, Object, World, WorldKind};
 
 // the whole map repeats above this, so every access folds into one 512k window
 pub const VIP_MASK: u32 = 0x0007_FFFF;
